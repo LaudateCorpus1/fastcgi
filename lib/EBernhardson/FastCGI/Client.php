@@ -112,6 +112,20 @@ class Client
     protected $_readWriteTimeout = 0;
 
     /**
+     * Number of retries for connection
+     *
+     * @var integer
+     */
+    protected $retries = 0;
+
+    /**
+     * Milliseconds to usleep between retries
+     *
+     * @var int
+     */
+    protected $retryDelay = 100;
+
+    /**
      * Constructor
      *
      * @param String $host Host of the FastCGI application or path to the FastCGI unix socket
@@ -137,6 +151,16 @@ class Client
     public function __sleep()
     {
         return array('host','port','_readWriteTimeout');
+    }
+
+    public function setRetries($retries)
+    {
+        $this->retries = $retries;
+    }
+
+    public function setRetryDelay($delay)
+    {
+        $this->retryDelay = $delay;
     }
 
     /**
@@ -235,6 +259,15 @@ class Client
             throw CommunicationException::socketCreate();
         }
         if (false === socket_connect($this->sock, $address, $port)) {
+            if ($this->retries) {
+                $this->retries--;
+                usleep($this->retryDelay * 1000);
+
+                $this->connect();
+
+                return;
+            }
+
             throw CommunicationException::socketConnect($this->sock, $this->host, $this->port);
         }
         if ($this->_readWriteTimeout && !$this->setMsTimeout($this->_readWriteTimeout)) {
@@ -522,6 +555,11 @@ class Client
 
         do {
             $resp = $this->readPacket($timeoutMs);
+
+            if (is_null($resp)) {
+                throw new CommunicationException('Request terminated unexpectedly');
+            }
+
             if (!$resp) {
                 continue; // block again
             }
